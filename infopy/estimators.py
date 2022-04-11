@@ -1,13 +1,22 @@
+import warnings
+
 import numpy as np
 from scipy.special import digamma
 from sklearn.neighbors import KDTree, NearestNeighbors
 
+from functional import kraskov_entropy
 
-class CDMIEstimator:
+
+class CDMIRossEstimator:
     def __init__(self, n_neighbors=4):
         self.n_neighbors = n_neighbors
 
     def estimate(self, X, c, local=False):
+        if local:
+            warnings.warn(
+                "CDMIRossEstimator should not be used with local MI. Use CDMIEntropyBasedEstimator instead."
+            )
+
         if len(X.shape) != 2 or len(c.shape) != 2:
             raise ValueError(
                 "X and c must be 2D arrays, if they are vectors, reshape them with .reshape(-1, 1)"
@@ -33,6 +42,7 @@ class CDMIEstimator:
                 nn.set_params(n_neighbors=k)
                 nn.fit(X[mask, :])
                 r = nn.kneighbors()[0]
+                print(r)
                 radius[mask] = np.nextafter(r[:, -1], 0)
 
                 k_all[mask] = k
@@ -63,6 +73,31 @@ class CDMIEstimator:
 
         else:
             return max(0, np.mean(mis))
+
+
+class CDMIEntropyBasedEstimator:
+    def __init__(self, n_neighbors=5, algorithm="auto", metric="euclidean", n_jobs=-1):
+        self.n_neighbors = n_neighbors
+        self.algorithm = algorithm
+        self.metric = metric
+        self.n_jobs = n_jobs
+
+    def estimate(self, X, c, local=False):
+        H = kraskov_entropy(
+            X, local=True, n_neighbors=self.n_neighbors, metric=self.metric
+        )
+        for unique_c in np.unique(c, axis=0):
+            mask = (unique_c == c).all(axis=1)
+            Hc = kraskov_entropy(
+                X[mask, :], local=True, n_neighbors=self.n_neighbors, metric=self.metric
+            )
+            H[mask] -= Hc
+
+        if local:
+            return H
+
+        else:
+            return np.mean(H)
 
 
 class CCMIEstimator:
