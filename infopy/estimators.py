@@ -4,11 +4,8 @@ from sklearn.neighbors import KDTree, NearestNeighbors
 
 
 class CDMIEstimator:
-    def __init__(self, *args, n_neighbors=5, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, n_neighbors=4):
         self.n_neighbors = n_neighbors
-        self.cache_for_sample_selection = None
-        self.device = "cpu"
 
     def estimate(self, X, c, local=False):
         if len(X.shape) != 2 or len(c.shape) != 2:
@@ -59,6 +56,51 @@ class CDMIEstimator:
             + digamma(k_all)
             - digamma(label_counts)
             - digamma(m_all + 1)
+        )
+
+        if local:
+            return mis
+
+        else:
+            return max(0, np.mean(mis))
+
+
+class CCMIEstimator:
+    def __init__(self, n_neighbors=4):
+        self.n_neighbors = n_neighbors
+
+    def estimate(self, X, y, local=False):
+        if len(X.shape) != 2 or len(y.shape) != 2:
+            raise ValueError(
+                "X and c must be 2D arrays, if they are vectors, reshape them with .reshape(-1, 1)"
+            )
+
+        X = X + np.random.randn(*X.shape) * 1e-8
+        y = y + np.random.randn(*y.shape) * 1e-8
+
+        n_samples = X.shape[0]
+
+        xy = np.hstack((X, y))
+
+        nn = NearestNeighbors(metric="chebyshev", n_neighbors=self.n_neighbors)
+
+        nn.fit(xy)
+        radius = nn.kneighbors()[0]
+        radius = np.nextafter(radius[:, -1], 0)
+
+        kd = KDTree(X, metric="chebyshev")
+        nx = kd.query_radius(X, radius, count_only=True, return_distance=False)
+        nx = np.array(nx) - 1.0
+
+        kd = KDTree(y, metric="chebyshev")
+        ny = kd.query_radius(y, radius, count_only=True, return_distance=False)
+        ny = np.array(ny) - 1.0
+
+        mis = (
+            digamma(n_samples)
+            + digamma(self.n_neighbors)
+            - digamma(nx + 1)
+            - digamma(ny + 1)
         )
 
         if local:
