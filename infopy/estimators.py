@@ -4,7 +4,46 @@ import numpy as np
 from scipy.special import digamma
 from sklearn.neighbors import KDTree, NearestNeighbors
 
-from functional import kraskov_entropy
+from .functional import kozachenko_leonenko_entropy
+
+
+class DDMIEstimator:
+    def estimate(self, X, y, local=False):
+        y = y.reshape(-1)
+        unique_y = np.unique(y)
+        unique_x, inverse_x = np.unique(X, axis=0, return_inverse=True)
+
+        counts = np.zeros((unique_x.shape[0], unique_y.shape[0]))
+
+        for i, uy in enumerate(unique_y):
+            y_index = y == uy
+            y_number_indices = np.arange(X.shape[0])[y_index]
+            X_uy = X[y_index]
+            unique_xuy, index_xuy, count_xuy = np.unique(
+                X_uy, axis=0, return_index=True, return_counts=True
+            )
+            converted_indices = inverse_x[y_number_indices[index_xuy]]
+            counts[converted_indices, i] = count_xuy
+
+        probs = counts / counts.sum()
+        p_x = probs.sum(axis=1, keepdims=True)
+        p_c = probs.sum(axis=0, keepdims=True)
+
+        if local:
+            # Obtain this unique_x original index
+            unique_x_indices = inverse_x.astype(int)
+            
+            # Obtain the corresponding y indices
+            unique_y_indices = y.astype(int)
+            
+            # Filter the information to be only of selected samples and normalize probabilities before expectation
+            mis = np.log2(probs / (p_x * p_c))[unique_x_indices, unique_y_indices]
+            return mis
+
+        else:
+            IM = np.nansum(probs * np.log2(probs / (p_x * p_c)))
+
+        return IM
 
 
 class CDMIRossEstimator:
@@ -83,12 +122,12 @@ class CDMIEntropyBasedEstimator:
         self.n_jobs = n_jobs
 
     def estimate(self, X, c, local=False):
-        H = kraskov_entropy(
+        H = kozachenko_leonenko_entropy(
             X, local=True, n_neighbors=self.n_neighbors, metric=self.metric
         )
         for unique_c in np.unique(c, axis=0):
             mask = (unique_c == c).all(axis=1)
-            Hc = kraskov_entropy(
+            Hc = kozachenko_leonenko_entropy(
                 X[mask, :], local=True, n_neighbors=self.n_neighbors, metric=self.metric
             )
             H[mask] -= Hc
