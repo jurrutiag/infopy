@@ -3,12 +3,29 @@ import warnings
 import numpy as np
 from scipy.special import digamma
 from sklearn.neighbors import KDTree, NearestNeighbors
+from abc import ABC, abstractmethod
 
-from .functional import kozachenko_leonenko_entropy
+from .functional import kozachenko_leonenko_entropy, discrete_entropy
 
 
-class DDMIEstimator:
+class BaseMIEstimator(ABC):
+    def __init__(self, flip_xy=False):
+        self.flip_xy = flip_xy
+    
     def estimate(self, X, y, local=False):
+        if self.flip_xy:
+            return self._estimate(y, X, local)
+        
+        else:
+            return self._estimate(X, y, local)
+    
+    @abstractmethod
+    def _estimate(self, X, y, local=False):
+        pass
+
+
+class DDMIEstimator(BaseMIEstimator):
+    def _estimate(self, X, y, local=False):
         y = y.reshape(-1)
         unique_y = np.unique(y)
         unique_x, inverse_x = np.unique(X, axis=0, return_inverse=True)
@@ -46,11 +63,12 @@ class DDMIEstimator:
         return IM
 
 
-class CDMIRossEstimator:
-    def __init__(self, n_neighbors=4):
+class CDMIRossEstimator(BaseMIEstimator):
+    def __init__(self, *args, n_neighbors=4, **kwargs):
+        super().__init__(*args, **kwargs)
         self.n_neighbors = n_neighbors
 
-    def estimate(self, X, c, local=False):
+    def _estimate(self, X, c, local=False):
         if local:
             warnings.warn(
                 "CDMIRossEstimator should not be used with local MI. Use CDMIEntropyBasedEstimator instead."
@@ -81,7 +99,6 @@ class CDMIRossEstimator:
                 nn.set_params(n_neighbors=k)
                 nn.fit(X[mask, :])
                 r = nn.kneighbors()[0]
-                print(r)
                 radius[mask] = np.nextafter(r[:, -1], 0)
 
                 k_all[mask] = k
@@ -114,14 +131,15 @@ class CDMIRossEstimator:
             return max(0, np.mean(mis))
 
 
-class CDMIEntropyBasedEstimator:
-    def __init__(self, n_neighbors=5, algorithm="auto", metric="euclidean", n_jobs=-1):
+class CDMIEntropyBasedEstimator(BaseMIEstimator):
+    def __init__(self, *args, n_neighbors=5, algorithm="auto", metric="euclidean", n_jobs=-1, **kwargs):
+        super().__init__(*args, **kwargs)
         self.n_neighbors = n_neighbors
         self.algorithm = algorithm
         self.metric = metric
         self.n_jobs = n_jobs
 
-    def estimate(self, X, c, local=False):
+    def _estimate(self, X, c, local=False):
         H = kozachenko_leonenko_entropy(
             X, local=True, n_neighbors=self.n_neighbors, metric=self.metric
         )
@@ -139,11 +157,12 @@ class CDMIEntropyBasedEstimator:
             return np.mean(H)
 
 
-class CCMIEstimator:
-    def __init__(self, n_neighbors=4):
+class CCMIEstimator(BaseMIEstimator):
+    def __init__(self, *args, n_neighbors=4, **kwargs):
+        super().__init__(*args, **kwargs)
         self.n_neighbors = n_neighbors
 
-    def estimate(self, X, y, local=False):
+    def _estimate(self, X, y, local=False):
         if len(X.shape) != 2 or len(y.shape) != 2:
             raise ValueError(
                 "X and c must be 2D arrays, if they are vectors, reshape them with .reshape(-1, 1)"
@@ -182,3 +201,17 @@ class CCMIEstimator:
 
         else:
             return max(0, np.mean(mis))
+
+
+class ContinuousEntropyEstimator:
+    def __init__(self, n_neighbors=4, metric="euclidean"):
+        self.n_neighbors = n_neighbors
+        self.metric = metric
+        
+    def estimate(self, X, local=False):
+        return kozachenko_leonenko_entropy(X, local=local, n_neighbors=self.n_neighbors, metric=self.metric)
+    
+
+class DiscreteEntropyEstimator:
+    def estimate(self, X, local=False):
+        return discrete_entropy(X, local=local)
