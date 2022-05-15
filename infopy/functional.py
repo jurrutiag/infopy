@@ -33,11 +33,11 @@ def kozachenko_leonenko_entropy(X, local=False, n_neighbors=4, metric="euclidean
 def discrete_entropy(X, local=False):
     _, inverse, counts = np.unique(X, return_counts=True, return_inverse=True)
     p_X = counts / X.shape[0]
-    
+
     log2 = -np.log2(p_X)
-    
+
     if local:
         return log2[inverse]
-    
+
     else:
         return np.nansum(p_X * log2)

@@ -12,12 +12,24 @@ class BaseMIEstimator(ABC):
     def __init__(self, flip_xy=False):
         self.flip_xy = flip_xy
     
-    def estimate(self, X, y, local=False):
+    def estimate(self, X, y, local=False, conditioned_on=None):
         if self.flip_xy:
-            return self._estimate(y, X, local)
+            X, y = y, X
         
-        else:
-            return self._estimate(X, y, local)
+        if conditioned_on is not None:
+            z = conditioned_on
+            if len(z.shape) != 2:
+                raise ValueError(
+                    "Condition variable must be a 2D array, if it's a vector, reshape it with .reshape(-1, 1)"
+                )
+                
+            mi_xz_y = self._estimate(np.hstack((X, z)), y)
+            mi_z_y = self._estimate(z, y)
+            
+            return mi_xz_y - mi_z_y
+
+        return self._estimate(X, y, local)
+            
     
     @abstractmethod
     def _estimate(self, X, y, local=False):
@@ -81,9 +93,6 @@ class CDMIRossEstimator(BaseMIEstimator):
 
         X = X + np.random.randn(*X.shape) * 1e-10
         n_samples = X.shape[0]
-
-        if len(X.shape) == 1:
-            X = X.reshape((-1, 1))
 
         radius = np.empty(n_samples)
         label_counts = np.empty(n_samples)
@@ -210,8 +219,38 @@ class ContinuousEntropyEstimator:
         
     def estimate(self, X, local=False):
         return kozachenko_leonenko_entropy(X, local=local, n_neighbors=self.n_neighbors, metric=self.metric)
-    
+
 
 class DiscreteEntropyEstimator:
     def estimate(self, X, local=False):
         return discrete_entropy(X, local=local)
+
+
+def get_mi_estimator(x_type, y_type, local=False):
+    if x_type == "discrete" and y_type == "discrete":
+        return DDMIEstimator()
+
+    elif x_type == "continuous" and y_type == "continuous":
+        return CCMIEstimator()
+
+    elif x_type in ["continuous", "discrete"] and y_type in ["continuous", "discrete"]:
+        flip_xy = x_type == "discrete" and y_type == "continuous"
+        if local:
+            return CDMIEntropyBasedEstimator(flip_xy=flip_xy)
+
+        else:
+            return CDMIRossEstimator(flip_xy=flip_xy)
+
+    else:
+        raise ValueError(f"Unknown x_type: {x_type} or y_type: {y_type}")
+
+
+def get_entropy_estimator(x_type, local=False):
+    if x_type == "discrete":
+        return DiscreteEntropyEstimator()
+
+    elif x_type == "continuous":
+        return ContinuousEntropyEstimator()
+
+    else:
+        raise ValueError(f"Unknown x_type: {x_type}")
