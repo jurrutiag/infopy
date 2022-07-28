@@ -1,13 +1,16 @@
 import warnings
+from abc import ABC
+from abc import abstractmethod
 
 import numpy as np
-from scipy.special import digamma
-from sklearn.neighbors import KDTree, NearestNeighbors
 from scipy.spatial import cKDTree
-from abc import ABC, abstractmethod
+from scipy.special import digamma
+from sklearn.neighbors import KDTree
+from sklearn.neighbors import NearestNeighbors
 
-from .functional import kozachenko_leonenko_entropy, discrete_entropy
 from .edge import EDGE
+from .functional import discrete_entropy
+from .functional import kozachenko_leonenko_entropy
 
 
 class BaseMIEstimator(ABC):
@@ -45,7 +48,9 @@ class DDMIEstimator(BaseMIEstimator):
             )
 
         if y.shape[1] != 1:
-            raise ValueError("DDMIEstimator does not support multivariate y (only shapes of the form (n, 1))")
+            raise ValueError(
+                "DDMIEstimator does not support multivariate y (only shapes of the form (n, 1))"
+            )
 
         y = y.reshape(-1)
         unique_y = np.unique(y)
@@ -135,12 +140,7 @@ class CDMIRossEstimator(BaseMIEstimator):
         m_all = kd.query_radius(X, radius, count_only=True, return_distance=False)
         m_all = np.array(m_all) - 1.0
 
-        mis = (
-            digamma(n_samples)
-            + digamma(k_all)
-            - digamma(label_counts)
-            - digamma(m_all + 1)
-        )
+        mis = digamma(n_samples) + digamma(k_all) - digamma(label_counts) - digamma(m_all + 1)
 
         if local:
             return mis
@@ -215,12 +215,7 @@ class CCMIEstimator(BaseMIEstimator):
         ny = kd.query_radius(y, radius, count_only=True, return_distance=False)
         ny = np.array(ny) - 1.0
 
-        mis = (
-            digamma(n_samples)
-            + digamma(self.n_neighbors)
-            - digamma(nx + 1)
-            - digamma(ny + 1)
-        )
+        mis = digamma(n_samples) + digamma(self.n_neighbors) - digamma(nx + 1) - digamma(ny + 1)
 
         if local:
             return mis
@@ -274,12 +269,8 @@ class MixedMIEstimator(BaseMIEstimator):
                 ny = len(tree_y.query_ball_point(y[i], 1e-15, p=float("inf")))
 
             else:
-                nx = len(
-                    tree_x.query_ball_point(X[i], knn_dis[i] - 1e-15, p=float("inf"))
-                )
-                ny = len(
-                    tree_y.query_ball_point(y[i], knn_dis[i] - 1e-15, p=float("inf"))
-                )
+                nx = len(tree_x.query_ball_point(X[i], knn_dis[i] - 1e-15, p=float("inf")))
+                ny = len(tree_y.query_ball_point(y[i], knn_dis[i] - 1e-15, p=float("inf")))
 
             mis.append(digamma(kp) + np.log(N) - digamma(nx) - digamma(ny))
 
@@ -321,17 +312,17 @@ class SymmetricalUncertaintyEstimator:
         self.mi_estimator = get_mi_estimator(x_type, y_type)
         self.hx_estimator = get_entropy_estimator(x_type)
         self.hy_estimator = get_entropy_estimator(y_type)
-        
+
     def estimate(self, X, y, local=False):
         if local:
             raise ValueError("SymmetricalUncertaintyEstimator cannot be used with local MI.")
-        
+
         mi = self.mi_estimator.estimate(X, y, local=False)
         hx = self.hx_estimator.estimate(X, local=False)
         hy = self.hy_estimator.estimate(y, local=False)
-        
+
         su = 2 * (mi / (hx + hy))
-        
+
         return su
 
 

@@ -44,17 +44,17 @@
 #
 # Output: I is the estimation of mutual information between X snd Y
 ###########################
-
-import numpy as np
 import math
+import time
+
 import cvxpy as cvx  # Need to install CVXPY package,
+import numpy as np
+import sklearn
+from scipy.special import *
+from sklearn.neighbors import NearestNeighbors
 
 #  it is also possible to run this code without cvxpy, by
 #   using 'average' or 'median' ensemble_estimation
-import time
-from scipy.special import *
-from sklearn.neighbors import NearestNeighbors
-import sklearn
 
 # from random import randint, seed
 # np.random.seed(seed=0)
@@ -118,9 +118,7 @@ def find_knn(A, d):
     N = A.shape[0]
 
     k = math.floor(
-        0.43
-        * N ** (2 / 3 + 0.17 * (d / (d + 1)))
-        * math.exp(-1.0 / np.max([10000, d**4]))
+        0.43 * N ** (2 / 3 + 0.17 * (d / (d + 1))) * math.exp(-1.0 / np.max([10000, d**4]))
     )
     # print('k,d', k, d)
     T = np.random.choice(
