@@ -1,11 +1,8 @@
-
 from glob import glob
 from os import path
-from os.path import splitext
-from os.path import basename
+from os.path import basename, splitext
 
-from setuptools import find_packages
-from setuptools import setup
+from setuptools import find_packages, setup
 
 this_directory = path.abspath(path.dirname(__file__))
 with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:

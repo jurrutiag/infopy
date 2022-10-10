@@ -1,6 +1,5 @@
 import numpy as np
-from scipy.special import gamma
-from scipy.special import psi
+from scipy.special import gamma, psi
 from sklearn.neighbors import NearestNeighbors
 
 

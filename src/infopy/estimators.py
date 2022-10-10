@@ -1,16 +1,13 @@
 import warnings
-from abc import ABC
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 
 import numpy as np
 from scipy.spatial import cKDTree
 from scipy.special import digamma
-from sklearn.neighbors import KDTree
-from sklearn.neighbors import NearestNeighbors
+from sklearn.neighbors import KDTree, NearestNeighbors
 
 from .edge import EDGE
-from .functional import discrete_entropy
-from .functional import kozachenko_leonenko_entropy
+from .functional import discrete_entropy, kozachenko_leonenko_entropy
 
 
 class BaseMIEstimator(ABC):
