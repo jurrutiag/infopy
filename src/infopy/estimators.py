@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 from scipy.spatial import cKDTree
 from scipy.special import digamma
+from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.neighbors import KDTree, NearestNeighbors
 
 from .edge import EDGE
@@ -109,7 +110,9 @@ class CDMIRossEstimator(BaseMIEstimator):
         label_counts = np.empty(n_samples)
         k_all = np.empty(n_samples)
 
-        nn = NearestNeighbors()
+        pw_distances = euclidean_distances(X)
+
+        nn = NearestNeighbors(metric="precomputed")
         for label in np.unique(c, axis=0):
             mask = (c == label).all(axis=1)
             count = np.sum(mask)
@@ -117,7 +120,8 @@ class CDMIRossEstimator(BaseMIEstimator):
                 k = min(self.n_neighbors, count - 1)
 
                 nn.set_params(n_neighbors=k)
-                nn.fit(X[mask, :])
+                masked_dists = pw_distances[mask, :][:, mask]
+                nn.fit(masked_dists)
                 r = nn.kneighbors()[0]
                 radius[mask] = np.nextafter(r[:, -1], 0)
 
@@ -132,10 +136,10 @@ class CDMIRossEstimator(BaseMIEstimator):
         k_all = k_all[mask]
         X = X[mask, :]
         radius = radius[mask]
+        pw_distances = pw_distances[mask, :][:, mask]
 
-        kd = KDTree(X)
-        m_all = kd.query_radius(X, radius, count_only=True, return_distance=False)
-        m_all = np.array(m_all) - 1.0
+        m_all = (pw_distances <= radius.reshape(-1, 1)).sum(axis=1)
+        m_all = m_all - 1.0
 
         mis = digamma(n_samples) + digamma(k_all) - digamma(label_counts) - digamma(m_all + 1)
 
