@@ -103,6 +103,8 @@ class CDMIRossEstimator(BaseMIEstimator):
                 "X and c must be 2D arrays, if they are vectors, reshape them with .reshape(-1, 1)"
             )
 
+        use_pw = X.shape[1] > 12
+
         X = X + np.random.randn(*X.shape) * 1e-10
         n_samples = X.shape[0]
 
@@ -110,9 +112,10 @@ class CDMIRossEstimator(BaseMIEstimator):
         label_counts = np.empty(n_samples)
         k_all = np.empty(n_samples)
 
-        pw_distances = euclidean_distances(X)
+        if use_pw:
+            pw_distances = euclidean_distances(X)
 
-        nn = NearestNeighbors(metric="precomputed")
+        nn = NearestNeighbors(metric="precomputed" if use_pw else "minkowski")
         for label in np.unique(c, axis=0):
             mask = (c == label).all(axis=1)
             count = np.sum(mask)
@@ -120,8 +123,8 @@ class CDMIRossEstimator(BaseMIEstimator):
                 k = min(self.n_neighbors, count - 1)
 
                 nn.set_params(n_neighbors=k)
-                masked_dists = pw_distances[mask, :][:, mask]
-                nn.fit(masked_dists)
+                masked_fit_input = pw_distances[mask, :][:, mask] if use_pw else X[mask, :]
+                nn.fit(masked_fit_input)
                 r = nn.kneighbors()[0]
                 radius[mask] = np.nextafter(r[:, -1], 0)
 
@@ -136,10 +139,16 @@ class CDMIRossEstimator(BaseMIEstimator):
         k_all = k_all[mask]
         X = X[mask, :]
         radius = radius[mask]
-        pw_distances = pw_distances[mask, :][:, mask]
 
-        m_all = (pw_distances <= radius.reshape(-1, 1)).sum(axis=1)
-        m_all = m_all - 1.0
+        if use_pw:
+            pw_distances = pw_distances[mask, :][:, mask]
+            m_all = (pw_distances <= radius.reshape(-1, 1)).sum(axis=1)
+            m_all = m_all - 1.0
+
+        else:
+            kd = KDTree(X)
+            m_all = kd.query_radius(X, radius, count_only=True, return_distance=False)
+            m_all = np.array(m_all) - 1.0
 
         mis = digamma(n_samples) + digamma(k_all) - digamma(label_counts) - digamma(m_all + 1)
 
