@@ -3,7 +3,9 @@ from scipy.special import gamma, psi
 from sklearn.neighbors import NearestNeighbors
 
 
-def kozachenko_leonenko_entropy(X, local=False, n_neighbors=4, metric="euclidean"):
+def kozachenko_leonenko_entropy(
+    X: np.ndarray, pointwise: bool = False, n_neighbors: int = 4, metric: str = "euclidean"
+) -> float:
     n_neighbors = min(n_neighbors, X.shape[0] - 2)
 
     nn = NearestNeighbors(metric=metric)
@@ -23,20 +25,20 @@ def kozachenko_leonenko_entropy(X, local=False, n_neighbors=4, metric="euclidean
 
     ent = rterm + second + third
 
-    if local:
+    if pointwise:
         return ent
 
     else:
         return max(0, np.mean(ent))
 
 
-def discrete_entropy(X, local=False):
+def discrete_entropy(X: np.ndarray, pointwise: bool = False) -> float:
     _, inverse, counts = np.unique(X, return_counts=True, return_inverse=True)
     p_X = counts / X.shape[0]
 
     log2 = -np.log2(p_X)
 
-    if local:
+    if pointwise:
         return log2[inverse]
 
     else:
