@@ -1,13 +1,18 @@
 import warnings
 from abc import ABC, abstractmethod
+from typing import Any, Optional, Union
 
 import numpy as np
 from scipy.spatial import cKDTree
 from scipy.special import digamma
-from sklearn.metrics.pairwise import euclidean_distances
-from sklearn.neighbors import KDTree, NearestNeighbors
+from sklearn.metrics.pairwise import euclidean_distances  # type: ignore
+from sklearn.neighbors import KDTree, NearestNeighbors  # type: ignore
 
 from .functional import discrete_entropy, kozachenko_leonenko_entropy
+
+# Constants
+EXPECTED_DIMENSIONS = 2
+PAIRWISE_DISTANCE_THRESHOLD = 12
 
 
 class BaseMIEstimator(ABC):
@@ -27,8 +32,8 @@ class BaseMIEstimator(ABC):
         X: np.ndarray,
         y: np.ndarray,
         pointwise: bool = False,
-        conditioned_on: np.ndarray = None,
-    ):
+        conditioned_on: Optional[np.ndarray] = None,
+    ) -> Union[float, np.ndarray]:
         """
         Estimate the mutual information I(X;Y) of X and Y from samples {x_i, y_i}_{i=1}^N.
         Optionally, estimate the pointwise mutual information I(X_i;Y_i) of each sample i.
@@ -37,21 +42,25 @@ class BaseMIEstimator(ABC):
         Args:
             X: Random vector of shape (n_samples, n_features_x)
             y: Random vector of shape (n_samples, n_features_y)
-            pointwise: If True, returns the pointwise mutual information of each sample. Defaults to False.
-            conditioned_on: If not None, returns the conditional mutual information I(X;Y|Z) where Z is conditioned_on.
+            pointwise: If True, returns the pointwise mutual information of each sample.
+                Defaults to False.
+            conditioned_on: If not None, returns the conditional mutual information I(X;Y|Z)
+                where Z is conditioned_on.
             If specified, Z must be (n_samples, n_features_z).
 
         Returns:
-            Mutual information of X and Y if pointwise is False, otherwise returns pointwise mutual information.
+            Mutual information of X and Y if pointwise is False, otherwise returns
+                pointwise mutual information.
         """
         if self.flip_xy:
             X, y = y, X
 
         if conditioned_on is not None:
             z = conditioned_on
-            if len(z.shape) != 2:
+            if len(z.shape) != EXPECTED_DIMENSIONS:
                 raise ValueError(
-                    "Condition variable must be a 2D array, if it's a vector, reshape it with .reshape(-1, 1)"
+                    "Condition variable must be a 2D array, if it's a vector, "
+                    "reshape it with .reshape(-1, 1)"
                 )
 
             mi_xz_y = self._estimate(np.hstack((X, z)), y)
@@ -62,17 +71,21 @@ class BaseMIEstimator(ABC):
         return self._estimate(X, y, pointwise)
 
     @abstractmethod
-    def _estimate(self, X: np.ndarray, y: np.ndarray, pointwise=False) -> float:
+    def _estimate(
+        self, X: np.ndarray, y: np.ndarray, pointwise: bool = False
+    ) -> Union[float, np.ndarray]:
         """
         Estimate the mutual information I(X;Y) of X and Y from samples {x_i, y_i}_{i=1}^N.
 
         Args:
             X: Random vector of shape (n_samples, n_features_x)
             y: Random vector of shape (n_samples, n_features_y)
-            pointwise: If True, returns the pointwise mutual information of each sample. Defaults to False.
+            pointwise: If True, returns the pointwise mutual information of each sample.
+                Defaults to False.
 
         Returns:
-            Mutual information of X and Y if pointwise is False, otherwise returns pointwise mutual information.
+            Mutual information of X and Y if pointwise is False, otherwise returns
+                pointwise mutual information.
         """
         pass
 
@@ -85,8 +98,10 @@ class DDMIEstimator(BaseMIEstimator):
     Used for discrete X and discrete Y.
     """
 
-    def _estimate(self, X: np.ndarray, y: np.ndarray, pointwise=False) -> float:
-        if len(X.shape) != 2 or len(y.shape) != 2:
+    def _estimate(
+        self, X: np.ndarray, y: np.ndarray, pointwise: bool = False
+    ) -> Union[float, np.ndarray]:
+        if len(X.shape) != EXPECTED_DIMENSIONS or len(y.shape) != EXPECTED_DIMENSIONS:
             raise ValueError(
                 "X and c must be 2D arrays, if they are vectors, reshape them with .reshape(-1, 1)"
             )
@@ -121,16 +136,16 @@ class DDMIEstimator(BaseMIEstimator):
             unique_x_indices = inverse_x.astype(int)
 
             # Obtain the corresponding y indices
-            unique_y_indices = y.astype(int)
+            unique_y_indices: np.ndarray = y.astype(int)
 
-            # Filter the information to be only of selected samples and normalize probabilities before expectation
-            mis = np.log2(probs / (p_x * p_c))[unique_x_indices, unique_y_indices]
+            # Filter the information to be only of selected samples and normalize probabilities
+            # before expectation
+            mis: np.ndarray = np.log2(probs / (p_x * p_c))[unique_x_indices, unique_y_indices]
             return mis
 
         else:
-            IM = np.nansum(probs * np.log2(probs / (p_x * p_c)))
-
-        return IM
+            IM: float = float(np.nansum(probs * np.log2(probs / (p_x * p_c))))
+            return IM
 
 
 class CDMIRossEstimator(BaseMIEstimator):
@@ -140,10 +155,11 @@ class CDMIRossEstimator(BaseMIEstimator):
 
     Used for continuous X and discrete Y.
 
-    Ref: B. C. Ross “Mutual Information between Discrete and Continuous Data Sets”. PLoS ONE 9(2), 2014.
+    Ref: B. C. Ross "Mutual Information between Discrete and Continuous Data Sets".
+    PLoS ONE 9(2), 2014.
     """
 
-    def __init__(self, *args, n_neighbors: int = 4, **kwargs):
+    def __init__(self, *args: Any, n_neighbors: int = 4, **kwargs: Any) -> None:
         """
         Args:
             *args:
@@ -153,18 +169,22 @@ class CDMIRossEstimator(BaseMIEstimator):
         super().__init__(*args, **kwargs)
         self.n_neighbors = n_neighbors
 
-    def _estimate(self, X: np.ndarray, c: np.ndarray, pointwise=False) -> float:
+    def _estimate(
+        self, X: np.ndarray, c: np.ndarray, pointwise: bool = False
+    ) -> Union[float, np.ndarray]:
         if pointwise:
             warnings.warn(
-                "CDMIRossEstimator should not be used with local MI. Use CDMIEntropyBasedEstimator instead."
+                "CDMIRossEstimator should not be used with local MI. "
+                "Use CDMIEntropyBasedEstimator instead.",
+                stacklevel=2,
             )
 
-        if len(X.shape) != 2 or len(c.shape) != 2:
+        if len(X.shape) != EXPECTED_DIMENSIONS or len(c.shape) != EXPECTED_DIMENSIONS:
             raise ValueError(
                 "X and c must be 2D arrays, if they are vectors, reshape them with .reshape(-1, 1)"
             )
 
-        use_pw = X.shape[1] > 12
+        use_pw = X.shape[1] > PAIRWISE_DISTANCE_THRESHOLD
 
         X = X + np.random.randn(*X.shape) * 1e-10
         n_samples = X.shape[0]
@@ -179,7 +199,7 @@ class CDMIRossEstimator(BaseMIEstimator):
         nn = NearestNeighbors(metric="precomputed" if use_pw else "minkowski")
         for label in np.unique(c, axis=0):
             mask = (c == label).all(axis=1)
-            count = np.sum(mask)
+            count: int = int(np.sum(mask))
             if count > 1:
                 k = min(self.n_neighbors, count - 1)
 
@@ -214,10 +234,11 @@ class CDMIRossEstimator(BaseMIEstimator):
         mis = digamma(n_samples) + digamma(k_all) - digamma(label_counts) - digamma(m_all + 1)
 
         if pointwise:
-            return mis
-
+            pointwise_mis: np.ndarray = mis
+            return pointwise_mis
         else:
-            return max(0, np.mean(mis))
+            mean_mis: float = float(np.mean(mis))
+            return max(0, mean_mis)
 
 
 class CDMIEntropyBasedEstimator(BaseMIEstimator):
@@ -230,35 +251,37 @@ class CDMIEntropyBasedEstimator(BaseMIEstimator):
 
     def __init__(
         self,
-        *args,
+        *args: Any,
         n_neighbors: int = 5,
         algorithm: str = "auto",
         metric: str = "euclidean",
         n_jobs: int = -1,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.n_neighbors = n_neighbors
         self.algorithm = algorithm
         self.metric = metric
         self.n_jobs = n_jobs
 
-    def _estimate(self, X: np.ndarray, c: np.ndarray, pointwise=False) -> float:
+    def _estimate(
+        self, X: np.ndarray, c: np.ndarray, pointwise: bool = False
+    ) -> Union[float, np.ndarray]:
         H = kozachenko_leonenko_entropy(
-            X, local=True, n_neighbors=self.n_neighbors, metric=self.metric
+            X, pointwise=True, n_neighbors=self.n_neighbors, metric=self.metric
         )
         for unique_c in np.unique(c, axis=0):
             mask = (unique_c == c).all(axis=1)
             Hc = kozachenko_leonenko_entropy(
-                X[mask, :], local=True, n_neighbors=self.n_neighbors, metric=self.metric
+                X[mask, :], pointwise=True, n_neighbors=self.n_neighbors, metric=self.metric
             )
-            H[mask] -= Hc
+            if isinstance(H, np.ndarray) and isinstance(Hc, np.ndarray):
+                H[mask] -= Hc
 
         if pointwise:
             return H
-
         else:
-            return np.mean(H)
+            return float(np.mean(H))
 
 
 class CCMIEstimator(BaseMIEstimator):
@@ -268,10 +291,11 @@ class CCMIEstimator(BaseMIEstimator):
 
     Used for continuous X and continuous Y.
 
-    Ref: A. Kraskov, H. Stogbauer and P. Grassberger, “Estimating mutual information”. Phys. Rev. E 69, 2004.
+    Ref: A. Kraskov, H. Stogbauer and P. Grassberger, "Estimating mutual information".
+    Phys. Rev. E 69, 2004.
     """
 
-    def __init__(self, *args, n_neighbors: int = 4, **kwargs):
+    def __init__(self, *args: Any, n_neighbors: int = 4, **kwargs: Any) -> None:
         """
         Args:
             *args:
@@ -281,8 +305,10 @@ class CCMIEstimator(BaseMIEstimator):
         super().__init__(*args, **kwargs)
         self.n_neighbors = n_neighbors
 
-    def _estimate(self, X: np.ndarray, y: np.ndarray, pointwise=False) -> float:
-        if len(X.shape) != 2 or len(y.shape) != 2:
+    def _estimate(
+        self, X: np.ndarray, y: np.ndarray, pointwise: bool = False
+    ) -> Union[float, np.ndarray]:
+        if len(X.shape) != EXPECTED_DIMENSIONS or len(y.shape) != EXPECTED_DIMENSIONS:
             raise ValueError(
                 "X and c must be 2D arrays, if they are vectors, reshape them with .reshape(-1, 1)"
             )
@@ -311,10 +337,11 @@ class CCMIEstimator(BaseMIEstimator):
         mis = digamma(n_samples) + digamma(self.n_neighbors) - digamma(nx + 1) - digamma(ny + 1)
 
         if pointwise:
-            return mis
-
+            pointwise_mis: np.ndarray = mis
+            return pointwise_mis
         else:
-            return max(0, np.mean(mis))
+            mean_mis: float = float(np.mean(mis))
+            return max(0, mean_mis)
 
 
 class MixedMIEstimator(BaseMIEstimator):
@@ -328,11 +355,13 @@ class MixedMIEstimator(BaseMIEstimator):
     https://proceedings.neurips.cc/paper/2017/file/ef72d53990bc4805684c9b61fa64a102-Paper.pdf
     """
 
-    def __init__(self, *args, n_neighbors: int = 4, **kwargs):
+    def __init__(self, *args: Any, n_neighbors: int = 4, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.n_neighbors = n_neighbors
 
-    def _estimate(self, X: np.ndarray, y: np.ndarray, pointwise=False) -> float:
+    def _estimate(
+        self, X: np.ndarray, y: np.ndarray, pointwise: bool = False
+    ) -> Union[float, np.ndarray]:
         k = self.n_neighbors
         assert X.shape[0] == y.shape[0], "Lists should have same length"
         assert k <= X.shape[0] - 1, "Set k smaller than num. samples - 1"
@@ -350,7 +379,14 @@ class MixedMIEstimator(BaseMIEstimator):
         tree_x = cKDTree(X)
         tree_y = cKDTree(y)
 
-        knn_dis = [tree_xy.query(point, k + 1, p=float("inf"))[0][k] for point in data]
+        query_results = [tree_xy.query(point, k + 1, p=float("inf")) for point in data]
+        knn_dis = []
+        for result in query_results:
+            distances, _ = result
+            if isinstance(distances, np.ndarray):
+                knn_dis.append(float(distances[k]))
+            else:
+                knn_dis.append(float(distances))
         mis = []
 
         for i in range(N):
@@ -367,15 +403,16 @@ class MixedMIEstimator(BaseMIEstimator):
             mis.append(digamma(kp) + np.log(N) - digamma(nx) - digamma(ny))
 
         if pointwise:
-            return mis
-
+            pointwise_mis: np.ndarray = np.array(mis)
+            return pointwise_mis
         else:
-            return max(0, np.mean(mis))
+            mean_mis: float = float(np.mean(mis))
+            return max(0, mean_mis)
 
 
 class BaseEntropyEstimator(ABC):
     @abstractmethod
-    def estimate(self, X: np.ndarray, pointwise: bool = False) -> float:
+    def estimate(self, X: np.ndarray, pointwise: bool = False) -> Union[float, np.ndarray]:
         """
         Estimate the entropy H(X) of X from samples {x_i}_{i=1}^N.
 
@@ -400,9 +437,9 @@ class ContinuousEntropyEstimator(BaseEntropyEstimator):
         self.n_neighbors = n_neighbors
         self.metric = metric
 
-    def estimate(self, X: np.ndarray, pointwise: bool = False) -> float:
+    def estimate(self, X: np.ndarray, pointwise: bool = False) -> Union[float, np.ndarray]:
         return kozachenko_leonenko_entropy(
-            X, local=pointwise, n_neighbors=self.n_neighbors, metric=self.metric
+            X, pointwise=pointwise, n_neighbors=self.n_neighbors, metric=self.metric
         )
 
 
@@ -413,8 +450,8 @@ class DiscreteEntropyEstimator(BaseEntropyEstimator):
     Used for discrete X.
     """
 
-    def estimate(self, X: np.ndarray, pointwise: bool = False) -> float:
-        return discrete_entropy(X, local=pointwise)
+    def estimate(self, X: np.ndarray, pointwise: bool = False) -> Union[float, np.ndarray]:
+        return discrete_entropy(X, pointwise=pointwise)
 
 
 class SymmetricalUncertaintyEstimator:
@@ -429,7 +466,7 @@ class SymmetricalUncertaintyEstimator:
         self.hx_estimator = get_entropy_estimator(x_type)
         self.hy_estimator = get_entropy_estimator(y_type)
 
-    def estimate(self, X: np.ndarray, y: np.ndarray, pointwise=False) -> float:
+    def estimate(self, X: np.ndarray, y: np.ndarray, pointwise: bool = False) -> float:
         if pointwise:
             raise ValueError("SymmetricalUncertaintyEstimator cannot be used with pointwise MI.")
 
@@ -449,7 +486,8 @@ def get_mi_estimator(x_type: str, y_type: str, pointwise_suited: bool = False) -
     Args:
         x_type: Type of X. Can be "discrete", "continuous" or "mixed".
         y_type: Type of Y. Can be "discrete", "continuous" or "mixed".
-        pointwise_suited: If True, returns an estimator that is better suited for pointwise MI estimation. Defaults to False.
+        pointwise_suited: If True, returns an estimator that is better suited for
+            pointwise MI estimation. Defaults to False.
 
     Returns:
         Mutual information estimator for the specified x_type and y_type.

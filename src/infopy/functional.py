@@ -1,11 +1,13 @@
+from typing import Union
+
 import numpy as np
 from scipy.special import gamma, psi
-from sklearn.neighbors import NearestNeighbors
+from sklearn.neighbors import NearestNeighbors  # type: ignore
 
 
 def kozachenko_leonenko_entropy(
     X: np.ndarray, pointwise: bool = False, n_neighbors: int = 4, metric: str = "euclidean"
-) -> float:
+) -> Union[float, np.ndarray]:
     n_neighbors = min(n_neighbors, X.shape[0] - 2)
 
     nn = NearestNeighbors(metric=metric)
@@ -26,20 +28,21 @@ def kozachenko_leonenko_entropy(
     ent = rterm + second + third
 
     if pointwise:
-        return ent
-
+        pointwise_ent: np.ndarray = ent
+        return pointwise_ent
     else:
-        return max(0, np.mean(ent))
+        mean_ent: float = float(np.mean(ent))
+        return max(0, mean_ent)
 
 
-def discrete_entropy(X: np.ndarray, pointwise: bool = False) -> float:
+def discrete_entropy(X: np.ndarray, pointwise: bool = False) -> Union[float, np.ndarray]:
     _, inverse, counts = np.unique(X, return_counts=True, return_inverse=True)
     p_X = counts / X.shape[0]
 
     log2 = -np.log2(p_X)
 
     if pointwise:
-        return log2[inverse]
-
+        pointwise_entropy: np.ndarray = log2[inverse]
+        return pointwise_entropy
     else:
-        return np.nansum(p_X * log2)
+        return float(np.nansum(p_X * log2))
