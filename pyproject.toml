@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "infopy"
+name = "infopy-estimators"
 version = "0.1.0"
 description = "Information theory related estimators"
 readme = "README.md"
