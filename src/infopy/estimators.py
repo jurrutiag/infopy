@@ -52,6 +52,9 @@ class BaseMIEstimator(ABC):
             Mutual information of X and Y if pointwise is False, otherwise returns
                 pointwise mutual information.
         """
+        if X.size == 0 or y.size == 0:
+            raise ValueError("Input arrays cannot be empty")
+
         if self.flip_xy:
             X, y = y, X
 
@@ -216,6 +219,11 @@ class CDMIRossEstimator(BaseMIEstimator):
         # Ignore points with unique labels.
         mask = label_counts > 1
         n_samples = np.sum(mask)
+
+        if n_samples == 0:
+            # All labels are unique, return 0 MI
+            return 0.0 if not pointwise else np.zeros(len(X))
+
         label_counts = label_counts[mask]
         k_all = k_all[mask]
         X = X[mask, :]
@@ -238,7 +246,7 @@ class CDMIRossEstimator(BaseMIEstimator):
             return pointwise_mis
         else:
             mean_mis: float = float(np.mean(mis))
-            return max(0, mean_mis)
+            return max(0.0, mean_mis)
 
 
 class CDMIEntropyBasedEstimator(BaseMIEstimator):
@@ -341,7 +349,7 @@ class CCMIEstimator(BaseMIEstimator):
             return pointwise_mis
         else:
             mean_mis: float = float(np.mean(mis))
-            return max(0, mean_mis)
+            return max(0.0, mean_mis)
 
 
 class MixedMIEstimator(BaseMIEstimator):
@@ -407,7 +415,7 @@ class MixedMIEstimator(BaseMIEstimator):
             return pointwise_mis
         else:
             mean_mis: float = float(np.mean(mis))
-            return max(0, mean_mis)
+            return max(0.0, mean_mis)
 
 
 class BaseEntropyEstimator(ABC):

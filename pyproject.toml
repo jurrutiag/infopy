@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "infopy"
-version = "0.0.1"
+version = "0.1.0"
 description = "Information theory related estimators"
 readme = "README.md"
 license = {text = "MIT"}
@@ -30,9 +30,8 @@ dependencies = [
 
 [project.optional-dependencies]
 testing = [
-    "pytest>=6.0",
-    "pytest-cov>=2.0",
-    "tox>=3.24"
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
 ]
 
 [project.urls]

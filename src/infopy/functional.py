@@ -32,10 +32,13 @@ def kozachenko_leonenko_entropy(
         return pointwise_ent
     else:
         mean_ent: float = float(np.mean(ent))
-        return max(0, mean_ent)
+        return max(0.0, mean_ent)
 
 
 def discrete_entropy(X: np.ndarray, pointwise: bool = False) -> Union[float, np.ndarray]:
+    if X.size == 0:
+        raise ValueError("Input array cannot be empty")
+
     _, inverse, counts = np.unique(X, return_counts=True, return_inverse=True)
     p_X = counts / X.shape[0]
 
