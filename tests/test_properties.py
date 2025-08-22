@@ -151,7 +151,7 @@ class TestPropertyBased:
         X_relabeled = X.copy()
         X_relabeled[X == 0] = 10
         X_relabeled[X == 1] = 11
-        X_relabeled[X == 2] = 12
+        X_relabeled[X == 2] = 12  # noqa: PLR2004
 
         y_relabeled = y.copy()
         y_relabeled[y == 0] = 20

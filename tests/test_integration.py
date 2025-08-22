@@ -8,6 +8,13 @@ from infopy.estimators import (
     get_mi_estimator,
 )
 
+# Test constants
+INDEPENDENCE_TOLERANCE = 0.1
+SMALL_TOLERANCE = 0.1
+MEDIUM_TOLERANCE = 0.2
+LARGE_TOLERANCE = 0.4
+EXTREME_TOLERANCE = 0.5
+
 
 class TestKnownMIValues:
     """Integration tests using synthetic data with known theoretical MI values."""
@@ -25,7 +32,7 @@ class TestKnownMIValues:
         result = estimator.estimate(X, y)
 
         # MI should be close to 0 for independent variables
-        assert abs(result) < 0.1, f"Expected MI ≈ 0, got {result}"
+        assert abs(result) < INDEPENDENCE_TOLERANCE, f"Expected MI ≈ 0, got {result}"
 
     def test_discrete_deterministic_relationship(self):
         """Test MI for deterministic discrete relationship."""
@@ -39,7 +46,9 @@ class TestKnownMIValues:
         # For deterministic relationship, MI = H(Y)
         # H(Y) = log2(3) ≈ 1.585 for uniform distribution over 3 values
         expected_mi = np.log2(3)
-        assert abs(result - expected_mi) < 0.1, f"Expected MI ≈ {expected_mi}, got {result}"
+        assert abs(result - expected_mi) < SMALL_TOLERANCE, (
+            f"Expected MI ≈ {expected_mi}, got {result}"
+        )
 
     def test_discrete_identical_variables(self):
         """Test MI for identical discrete variables."""
@@ -53,7 +62,9 @@ class TestKnownMIValues:
         # For identical variables, MI = H(X) = H(Y)
         # Expected entropy for uniform distribution over 4 values
         expected_mi = np.log2(4)  # = 2.0
-        assert abs(result - expected_mi) < 0.2, f"Expected MI ≈ {expected_mi}, got {result}"
+        assert abs(result - expected_mi) < MEDIUM_TOLERANCE, (
+            f"Expected MI ≈ {expected_mi}, got {result}"
+        )
 
     def test_bivariate_gaussian_known_mi(self):
         """Test MI for bivariate Gaussian with known correlation."""
@@ -94,7 +105,7 @@ class TestKnownMIValues:
         result = estimator.estimate(X, y)
 
         # MI should be close to 0 for independent variables
-        assert abs(result) < 0.2, f"Expected MI ≈ 0, got {result}"
+        assert abs(result) < MEDIUM_TOLERANCE, f"Expected MI ≈ 0, got {result}"
 
     def test_continuous_discrete_relationship(self):
         """Test MI for continuous-discrete with known relationship."""
@@ -111,7 +122,7 @@ class TestKnownMIValues:
         result = estimator.estimate(X, y)
 
         # Should have positive MI since y depends on X
-        assert result > 0.2, f"Expected positive MI, got {result}"
+        assert result > MEDIUM_TOLERANCE, f"Expected positive MI, got {result}"
 
     def test_mixed_gaussian_correlation_levels(self):
         """Test MI estimation across different correlation levels."""
@@ -146,7 +157,7 @@ class TestKnownMIValues:
 
         # Check that estimates are reasonably close to theoretical values
         for est, theo in zip(estimated_mis[1:], theoretical_mis[1:]):  # Skip rho=0 case
-            assert abs(est - theo) < 0.4, (
+            assert abs(est - theo) < LARGE_TOLERANCE, (
                 f"Estimated MI {est:.3f} too far from theoretical {theo:.3f}"
             )
 
@@ -171,7 +182,7 @@ class TestDataGenerationMI:
         result = estimator.estimate(X, y)
 
         # XOR creates strong dependence, MI should be positive
-        assert result > 0.5, f"Expected high MI for XOR relationship, got {result}"
+        assert result > EXTREME_TOLERANCE, f"Expected high MI for XOR relationship, got {result}"
 
     def test_linear_continuous_relationship(self):
         """Test MI for linear continuous relationship."""
@@ -203,7 +214,9 @@ class TestDataGenerationMI:
         result = estimator.estimate(X, y)
 
         # Nonlinear relationship should have positive MI
-        assert result > 0.3, f"Expected positive MI for nonlinear relationship, got {result}"
+        assert result > MEDIUM_TOLERANCE + SMALL_TOLERANCE, (
+            f"Expected positive MI for nonlinear relationship, got {result}"
+        )
 
     def test_multimodal_distribution(self):
         """Test MI estimation with multimodal distributions."""
@@ -224,7 +237,9 @@ class TestDataGenerationMI:
         result = estimator.estimate(X, y)
 
         # Correlated multimodal distribution should have positive MI
-        assert result > 0.5, f"Expected positive MI for multimodal distribution, got {result}"
+        assert result > EXTREME_TOLERANCE, (
+            f"Expected positive MI for multimodal distribution, got {result}"
+        )
 
 
 class TestEstimatorConsistency:
@@ -247,7 +262,7 @@ class TestEstimatorConsistency:
         entropy_result = entropy_estimator.estimate(X, y)
 
         # Results should be in the same ballpark
-        assert abs(ross_result - entropy_result) < 0.5, (
+        assert abs(ross_result - entropy_result) < EXTREME_TOLERANCE, (
             f"Estimators gave very different results: {ross_result:.3f} vs {entropy_result:.3f}"
         )
 
@@ -296,7 +311,7 @@ class TestTheoreticalProperties:
         mi_yx = estimator.estimate(y, X)
 
         # Should be approximately equal
-        assert abs(mi_xy - mi_yx) < 0.1, f"MI not symmetric: {mi_xy:.3f} vs {mi_yx:.3f}"
+        assert abs(mi_xy - mi_yx) < SMALL_TOLERANCE, f"MI not symmetric: {mi_xy:.3f} vs {mi_yx:.3f}"
 
     def test_mi_non_negativity(self):
         """Test that MI estimates are non-negative."""
@@ -330,6 +345,6 @@ class TestTheoreticalProperties:
         entropy = -np.sum(prob * np.log2(prob))
 
         # MI(X,X) should equal H(X)
-        assert abs(mi_xx - entropy) < 0.1, (
+        assert abs(mi_xx - entropy) < SMALL_TOLERANCE, (
             f"MI(X,X) = {mi_xx:.3f} should equal H(X) = {entropy:.3f}"
         )

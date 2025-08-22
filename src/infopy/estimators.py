@@ -12,6 +12,7 @@ from .functional import discrete_entropy, kozachenko_leonenko_entropy
 
 # Constants
 EXPECTED_DIMENSIONS = 2
+MAX_ARRAY_DIMENSIONS = 2
 PAIRWISE_DISTANCE_THRESHOLD = 12
 
 
@@ -27,6 +28,52 @@ class BaseMIEstimator(ABC):
         """
         self.flip_xy = flip_xy
 
+    def _validate_and_reshape_inputs(
+        self, X: np.ndarray, y: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Validate and reshape input arrays X and y.
+
+        This function ensures that:
+        - Input arrays are not empty
+        - Arrays are 1D or 2D (no higher dimensions)
+        - Both arrays have the same number of samples
+        - 1D arrays are automatically reshaped to (n_samples, 1)
+
+        Args:
+            X: Input array of shape (n_samples,) or (n_samples, n_features_x)
+            y: Input array of shape (n_samples,) or (n_samples, n_features_y)
+
+        Returns:
+            Tuple of validated and reshaped arrays (X, y)
+
+        Raises:
+            ValueError: If arrays are empty, have mismatched sample counts, or have >2 dimensions
+        """
+        if X.size == 0 or y.size == 0:
+            raise ValueError("Input arrays cannot be empty")
+
+        # Check dimensions are not more than 2
+        if X.ndim > MAX_ARRAY_DIMENSIONS:
+            raise ValueError(f"X must be 1D or 2D array, got {X.ndim}D array")
+        if y.ndim > MAX_ARRAY_DIMENSIONS:
+            raise ValueError(f"y must be 1D or 2D array, got {y.ndim}D array")
+
+        # Reshape 1D arrays to 2D
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
+        if y.ndim == 1:
+            y = y.reshape(-1, 1)
+
+        # Check that both arrays have the same number of samples
+        if X.shape[0] != y.shape[0]:
+            raise ValueError(
+                f"X and y must have the same number of samples. "
+                f"Got X.shape[0]={X.shape[0]} and y.shape[0]={y.shape[0]}"
+            )
+
+        return X, y
+
     def estimate(
         self,
         X: np.ndarray,
@@ -40,34 +87,41 @@ class BaseMIEstimator(ABC):
         Optionally, estimate the conditional mutual information I(X;Y|Z) where Z is conditioned_on.
 
         Args:
-            X: Random vector of shape (n_samples, n_features_x)
-            y: Random vector of shape (n_samples, n_features_y)
+            X: Random vector of shape (n_samples,) or (n_samples, n_features_x).
+                1D arrays are automatically reshaped to (n_samples, 1).
+            y: Random vector of shape (n_samples,) or (n_samples, n_features_y).
+                1D arrays are automatically reshaped to (n_samples, 1).
             pointwise: If True, returns the pointwise mutual information of each sample.
                 Defaults to False.
             conditioned_on: If not None, returns the conditional mutual information I(X;Y|Z)
-                where Z is conditioned_on.
-            If specified, Z must be (n_samples, n_features_z).
+                where Z is conditioned_on. Must be shape (n_samples,) or (n_samples, n_features_z).
+                1D arrays are automatically reshaped to (n_samples, 1).
 
         Returns:
             Mutual information of X and Y if pointwise is False, otherwise returns
                 pointwise mutual information.
         """
-        if X.size == 0 or y.size == 0:
-            raise ValueError("Input arrays cannot be empty")
+        # Validate and reshape inputs
+        X, y = self._validate_and_reshape_inputs(X, y)
 
         if self.flip_xy:
             X, y = y, X
 
         if conditioned_on is not None:
             z = conditioned_on
-            if len(z.shape) != EXPECTED_DIMENSIONS:
+            if z.ndim == 1:
+                z = z.reshape(-1, 1)
+            elif z.ndim != EXPECTED_DIMENSIONS:
+                raise ValueError(f"Condition variable must be 1D or 2D array, got {z.ndim}D array")
+
+            if z.shape[0] != X.shape[0]:
                 raise ValueError(
-                    "Condition variable must be a 2D array, if it's a vector, "
-                    "reshape it with .reshape(-1, 1)"
+                    f"Condition variable must have same number of samples as X and y. "
+                    f"Got z.shape[0]={z.shape[0]}, but X.shape[0]={X.shape[0]}"
                 )
 
-            mi_xz_y = self._estimate(np.hstack((X, z)), y)
-            mi_z_y = self._estimate(z, y)
+            mi_xz_y = self._estimate(np.hstack((X, z)), y, pointwise)
+            mi_z_y = self._estimate(z, y, pointwise)
 
             return mi_xz_y - mi_z_y
 
@@ -79,6 +133,10 @@ class BaseMIEstimator(ABC):
     ) -> Union[float, np.ndarray]:
         """
         Estimate the mutual information I(X;Y) of X and Y from samples {x_i, y_i}_{i=1}^N.
+
+        Note: Input validation and reshaping is handled by the estimate() method before
+        calling this method. Implementations can assume X and y are properly validated
+        2D arrays with matching sample counts.
 
         Args:
             X: Random vector of shape (n_samples, n_features_x)
@@ -104,11 +162,6 @@ class DDMIEstimator(BaseMIEstimator):
     def _estimate(
         self, X: np.ndarray, y: np.ndarray, pointwise: bool = False
     ) -> Union[float, np.ndarray]:
-        if len(X.shape) != EXPECTED_DIMENSIONS or len(y.shape) != EXPECTED_DIMENSIONS:
-            raise ValueError(
-                "X and c must be 2D arrays, if they are vectors, reshape them with .reshape(-1, 1)"
-            )
-
         if y.shape[1] != 1:
             raise ValueError(
                 "DDMIEstimator does not support multivariate y (only shapes of the form (n, 1))"
@@ -180,11 +233,6 @@ class CDMIRossEstimator(BaseMIEstimator):
                 "CDMIRossEstimator should not be used with local MI. "
                 "Use CDMIEntropyBasedEstimator instead.",
                 stacklevel=2,
-            )
-
-        if len(X.shape) != EXPECTED_DIMENSIONS or len(c.shape) != EXPECTED_DIMENSIONS:
-            raise ValueError(
-                "X and c must be 2D arrays, if they are vectors, reshape them with .reshape(-1, 1)"
             )
 
         use_pw = X.shape[1] > PAIRWISE_DISTANCE_THRESHOLD
@@ -316,11 +364,6 @@ class CCMIEstimator(BaseMIEstimator):
     def _estimate(
         self, X: np.ndarray, y: np.ndarray, pointwise: bool = False
     ) -> Union[float, np.ndarray]:
-        if len(X.shape) != EXPECTED_DIMENSIONS or len(y.shape) != EXPECTED_DIMENSIONS:
-            raise ValueError(
-                "X and c must be 2D arrays, if they are vectors, reshape them with .reshape(-1, 1)"
-            )
-
         X = X + np.random.randn(*X.shape) * 1e-8
         y = y + np.random.randn(*y.shape) * 1e-8
 
@@ -371,15 +414,9 @@ class MixedMIEstimator(BaseMIEstimator):
         self, X: np.ndarray, y: np.ndarray, pointwise: bool = False
     ) -> Union[float, np.ndarray]:
         k = self.n_neighbors
-        assert X.shape[0] == y.shape[0], "Lists should have same length"
         assert k <= X.shape[0] - 1, "Set k smaller than num. samples - 1"
 
         N = X.shape[0]
-        if X.ndim == 1:
-            X = X.reshape(-1, 1)
-
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
 
         data = np.concatenate((X, y), axis=1)
 
@@ -425,7 +462,8 @@ class BaseEntropyEstimator(ABC):
         Estimate the entropy H(X) of X from samples {x_i}_{i=1}^N.
 
         Args:
-            X: Random vector of shape (n_samples, n_features_x)
+            X: Random vector of shape (n_samples,) or (n_samples, n_features_x).
+                1D arrays are automatically reshaped to (n_samples, 1).
             pointwise: If True, returns the pointwise entropy of each sample. Defaults to False.
 
         Returns:
@@ -446,6 +484,8 @@ class ContinuousEntropyEstimator(BaseEntropyEstimator):
         self.metric = metric
 
     def estimate(self, X: np.ndarray, pointwise: bool = False) -> Union[float, np.ndarray]:
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
         return kozachenko_leonenko_entropy(
             X, pointwise=pointwise, n_neighbors=self.n_neighbors, metric=self.metric
         )
@@ -459,6 +499,8 @@ class DiscreteEntropyEstimator(BaseEntropyEstimator):
     """
 
     def estimate(self, X: np.ndarray, pointwise: bool = False) -> Union[float, np.ndarray]:
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
         return discrete_entropy(X, pointwise=pointwise)
 
 

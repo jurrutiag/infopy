@@ -1,3 +1,5 @@
+import queue
+import threading
 import time
 
 import numpy as np
@@ -11,6 +13,20 @@ from infopy.estimators import (
     DDMIEstimator,
     DiscreteEntropyEstimator,
 )
+
+# Performance test constants
+MAX_TIME_CONTINUOUS = 60
+MAX_TIME_DISCRETE = 10
+MAX_TIME_HIGH_DIM = 30
+MAX_TIME_NEIGHBORS = 20
+MAX_TIME_DISCRETE_ENTROPY = 5
+MAX_TIME_CONTINUOUS_ENTROPY = 20
+MAX_GROWTH_FACTOR = 10
+MAX_NEIGHBOR_GROWTH = 5
+MAX_THREAD_TIME_RATIO = 10
+CONSISTENCY_TOLERANCE = 1e-10
+THREAD_TOLERANCE = 0.1
+EXPECTED_THREAD_COUNT = 3
 
 
 class TestPerformance:
@@ -42,7 +58,9 @@ class TestPerformance:
             assert result >= 0, f"MI should be non-negative for large dataset (n={n_samples})"
 
             # Performance check: should complete within reasonable time
-            assert elapsed < 60, f"Estimation took too long: {elapsed:.2f}s for {n_samples} samples"
+            assert elapsed < MAX_TIME_CONTINUOUS, (
+                f"Estimation took too long: {elapsed:.2f}s for {n_samples} samples"
+            )
 
     @pytest.mark.slow
     def test_large_dataset_performance_discrete(self):
@@ -70,7 +88,7 @@ class TestPerformance:
             assert result >= 0, f"MI should be non-negative for large dataset (n={n_samples})"
 
             # Discrete MI should be very fast
-            assert elapsed < 10, (
+            assert elapsed < MAX_TIME_DISCRETE, (
                 f"Discrete estimation took too long: {elapsed:.2f}s for {n_samples} samples"
             )
 
@@ -109,8 +127,12 @@ class TestPerformance:
             assert np.isfinite(result_entropy) and result_entropy >= 0
 
             # Performance checks
-            assert elapsed_ross < 60, f"Ross estimation took too long: {elapsed_ross:.2f}s"
-            assert elapsed_entropy < 60, f"Entropy estimation took too long: {elapsed_entropy:.2f}s"
+            assert elapsed_ross < MAX_TIME_CONTINUOUS, (
+                f"Ross estimation took too long: {elapsed_ross:.2f}s"
+            )
+            assert elapsed_entropy < MAX_TIME_CONTINUOUS, (
+                f"Entropy estimation took too long: {elapsed_entropy:.2f}s"
+            )
 
     def test_high_dimensional_scaling(self):
         """Test performance scaling with dimensionality."""
@@ -139,15 +161,16 @@ class TestPerformance:
             print(f"  Time: {elapsed:.3f}s, Result: {result:.3f}")
 
             assert np.isfinite(result) and result >= 0
-            assert elapsed < 30, (
+            assert elapsed < MAX_TIME_HIGH_DIM, (
                 f"High-dimensional estimation took too long: {elapsed:.2f}s for dim={dim}"
             )
 
         # Time should increase with dimensionality, but not exponentially
         for i in range(1, len(times)):
             growth_factor = times[i] / times[i - 1]
-            assert growth_factor < 10, (
-                f"Time growth too large from dim {dimensions[i - 1]} to {dimensions[i]}: {growth_factor:.2f}x"
+            assert growth_factor < MAX_GROWTH_FACTOR, (
+                f"Time growth too large from dim {dimensions[i - 1]} to "
+                f"{dimensions[i]}: {growth_factor:.2f}x"
             )
 
     def test_neighbor_parameter_scaling(self):
@@ -172,11 +195,15 @@ class TestPerformance:
             print(f"k={k}: Time={elapsed:.3f}s, Result={result:.3f}")
 
             assert np.isfinite(result) and result >= 0
-            assert elapsed < 20, f"Estimation with k={k} took too long: {elapsed:.2f}s"
+            assert elapsed < MAX_TIME_NEIGHBORS, (
+                f"Estimation with k={k} took too long: {elapsed:.2f}s"
+            )
 
         # Time should not increase dramatically with k
         max_time_ratio = max(times) / min(times)
-        assert max_time_ratio < 5, f"Time scaling with neighbors too large: {max_time_ratio:.2f}x"
+        assert max_time_ratio < MAX_NEIGHBOR_GROWTH, (
+            f"Time scaling with neighbors too large: {max_time_ratio:.2f}x"
+        )
 
     @pytest.mark.slow
     def test_pointwise_mi_performance(self):
@@ -208,11 +235,13 @@ class TestPerformance:
         assert np.all(np.isfinite(pointwise_mi))
 
         # Consistency check
-        assert abs(np.mean(pointwise_mi) - total_mi) < 1e-10
+        assert abs(np.mean(pointwise_mi) - total_mi) < CONSISTENCY_TOLERANCE
 
         # Performance check - pointwise should not be dramatically slower
         time_ratio = pointwise_time / total_time
-        assert time_ratio < 10, f"Pointwise calculation too slow: {time_ratio:.2f}x slower"
+        assert time_ratio < MAX_THREAD_TIME_RATIO, (
+            f"Pointwise calculation too slow: {time_ratio:.2f}x slower"
+        )
 
     def test_memory_usage_large_dataset(self):
         """Test that large datasets don't cause memory issues."""
@@ -272,8 +301,12 @@ class TestPerformance:
         assert np.isfinite(entropy_continuous) and entropy_continuous >= 0
 
         # Performance checks
-        assert discrete_time < 5, f"Discrete entropy too slow: {discrete_time:.2f}s"
-        assert continuous_time < 20, f"Continuous entropy too slow: {continuous_time:.2f}s"
+        assert discrete_time < MAX_TIME_DISCRETE_ENTROPY, (
+            f"Discrete entropy too slow: {discrete_time:.2f}s"
+        )
+        assert continuous_time < MAX_TIME_CONTINUOUS_ENTROPY, (
+            f"Continuous entropy too slow: {continuous_time:.2f}s"
+        )
 
     def test_batch_estimation_consistency(self):
         """Test that results are consistent across multiple estimations."""
@@ -293,7 +326,7 @@ class TestPerformance:
 
         # Results should be identical (deterministic algorithm)
         for i in range(1, len(results)):
-            assert abs(results[i] - results[0]) < 1e-10, (
+            assert abs(results[i] - results[0]) < CONSISTENCY_TOLERANCE, (
                 f"Results not consistent: {results[0]:.6f} vs {results[i]:.6f}"
             )
 
@@ -342,15 +375,13 @@ class TestPerformance:
                 # Basic checks
                 assert np.isfinite(result), f"Non-finite result: {result}"
                 assert result >= 0, f"Negative MI: {result}"
-                assert elapsed < 30, f"Too slow: {elapsed:.2f}s"
+                assert elapsed < MAX_TIME_HIGH_DIM, f"Too slow: {elapsed:.2f}s"
 
             except Exception as e:
                 pytest.fail(f"Failed on config {configs}: {e}")
 
     def test_concurrent_estimation_safety(self):
         """Test that estimators are safe for concurrent use."""
-        import queue
-        import threading
 
         np.random.seed(42)
         n_samples = 500
@@ -380,13 +411,13 @@ class TestPerformance:
         while not results.empty():
             thread_results.append(results.get())
 
-        assert len(thread_results) == 3
+        assert len(thread_results) == EXPECTED_THREAD_COUNT
         for result in thread_results:
             assert np.isfinite(result) and result >= 0
 
         # Results should be similar (using same data and random seed)
         mean_result = np.mean(thread_results)
         for result in thread_results:
-            assert abs(result - mean_result) < 0.1, (
+            assert abs(result - mean_result) < THREAD_TOLERANCE, (
                 f"Thread results too different: {thread_results}"
             )

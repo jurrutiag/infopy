@@ -17,6 +17,10 @@ from infopy.estimators import (
     get_mi_estimator,
 )
 
+# Test constants
+INDEPENDENCE_TOLERANCE = 0.1
+HIGH_CORRELATION_THRESHOLD = 0.9
+
 
 class TestBaseMIEstimator:
     """Test suite for BaseMIEstimator base class."""
@@ -50,15 +54,19 @@ class TestBaseMIEstimator:
         X = np.random.randint(0, 3, (50, 1))
         y = np.random.randint(0, 2, (50, 1))
 
-        # Test with 1D conditioning variable (should raise error)
-        z_1d = np.random.randint(0, 2, 50)
-        with pytest.raises(ValueError, match="2D array"):
-            estimator.estimate(X, y, conditioned_on=z_1d)
+        # Test with 1D conditioning variable (should now work with automatic reshaping)
+        z_data = np.random.randint(0, 2, 50)
+        z_1d = z_data
+        result_1d = estimator.estimate(X, y, conditioned_on=z_1d)
+        assert isinstance(result_1d, float)
 
-        # Test with properly shaped conditioning variable
-        z_2d = np.random.randint(0, 2, (50, 1))
-        result = estimator.estimate(X, y, conditioned_on=z_2d)
-        assert isinstance(result, float)
+        # Test with properly shaped conditioning variable using same data
+        z_2d = z_data.reshape(-1, 1)
+        result_2d = estimator.estimate(X, y, conditioned_on=z_2d)
+        assert isinstance(result_2d, float)
+
+        # Results should be identical since z_1d and z_2d contain the same data
+        assert np.isclose(result_1d, result_2d)
 
 
 class TestDDMIEstimator:
@@ -74,7 +82,7 @@ class TestDDMIEstimator:
         result = estimator.estimate(X, y)
 
         # MI should be close to 0 for independent variables
-        assert abs(result) < 0.1
+        assert abs(result) < INDEPENDENCE_TOLERANCE
 
     def test_identical_variables(self):
         """Test MI estimation for identical discrete variables."""
@@ -92,17 +100,35 @@ class TestDDMIEstimator:
         """Test input validation for DDMIEstimator."""
         estimator = DDMIEstimator()
 
-        # Test 1D arrays (should raise error)
+        # Test 1D arrays (should now work with automatic reshaping)
         X_1d = np.array([1, 2, 3])
         y_1d = np.array([1, 2, 3])
-        with pytest.raises(ValueError, match="2D arrays"):
-            estimator.estimate(X_1d, y_1d)
+        result = estimator.estimate(X_1d, y_1d)
+        assert isinstance(result, float)
 
         # Test multivariate y (should raise error)
         X = np.random.randint(0, 3, (50, 1))
         y_multi = np.random.randint(0, 3, (50, 2))
         with pytest.raises(ValueError, match="multivariate y"):
             estimator.estimate(X, y_multi)
+
+    def test_automatic_reshaping(self):
+        """Test that 1D arrays are automatically reshaped to 2D."""
+        estimator = DDMIEstimator()
+
+        # Test with 1D arrays
+        X_1d = np.array([0, 1, 0, 1, 0])
+        y_1d = np.array([1, 1, 0, 0, 1])
+
+        # Test with equivalent 2D arrays
+        X_2d = X_1d.reshape(-1, 1)
+        y_2d = y_1d.reshape(-1, 1)
+
+        result_1d = estimator.estimate(X_1d, y_1d)
+        result_2d = estimator.estimate(X_2d, y_2d)
+
+        # Results should be identical
+        assert np.isclose(result_1d, result_2d)
 
     def test_pointwise_mi(self):
         """Test pointwise MI estimation."""
@@ -174,7 +200,7 @@ class TestCDMIRossEstimator:
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            result = estimator.estimate(X, y, pointwise=True)
+            estimator.estimate(X, y, pointwise=True)
             assert len(w) == 1
             assert "should not be used with local MI" in str(w[0].message)
 
@@ -182,11 +208,11 @@ class TestCDMIRossEstimator:
         """Test input validation."""
         estimator = CDMIRossEstimator()
 
-        # Test 1D arrays
+        # Test 1D arrays (should now work with automatic reshaping)
         X_1d = np.array([1.0, 2.0, 3.0])
         y_1d = np.array([1, 2, 3])
-        with pytest.raises(ValueError, match="2D arrays"):
-            estimator.estimate(X_1d, y_1d)
+        result = estimator.estimate(X_1d, y_1d)
+        assert isinstance(result, float)
 
     def test_dependent_variables(self):
         """Test with dependent continuous-discrete variables."""
@@ -256,7 +282,7 @@ class TestCCMIEstimator:
         result = estimator.estimate(X, y)
 
         # MI should be close to 0 for independent variables
-        assert abs(result) < 0.3
+        assert abs(result) < INDEPENDENCE_TOLERANCE * 3
 
     def test_correlated_gaussians(self):
         """Test MI estimation for correlated Gaussian variables."""
@@ -447,7 +473,7 @@ class TestSymmetricalUncertaintyEstimator:
         result = estimator.estimate(X, y)
 
         # SU should be close to 1 for identical variables
-        assert result > 0.9
+        assert result > HIGH_CORRELATION_THRESHOLD
 
 
 class TestHelperFunctions:
