@@ -225,6 +225,85 @@ class CDMIRossEstimator(BaseMIEstimator):
         super().__init__(*args, **kwargs)
         self.n_neighbors = n_neighbors
 
+    def _compute_radius_pairwise(
+        self, pw_distances: np.ndarray, label_indices: np.ndarray, k: int
+    ) -> np.ndarray:
+        """Compute radius using precomputed pairwise distances."""
+        sub_distances = pw_distances[label_indices][:, label_indices]
+        np.fill_diagonal(sub_distances, np.inf)
+
+        if k < sub_distances.shape[1] - 1:
+            partitioned = np.partition(sub_distances, k - 1, axis=1)
+            result: np.ndarray = np.nextafter(partitioned[:, k - 1], 0)
+            return result
+        else:
+            result = np.nextafter(
+                np.max(np.where(sub_distances < np.inf, sub_distances, 0), axis=1), 0
+            )
+            return result
+
+    def _compute_radius_euclidean(
+        self, X: np.ndarray, label_indices: np.ndarray, k: int
+    ) -> np.ndarray:
+        """Compute radius using euclidean distances."""
+        X_label = X[label_indices]
+        diff = X_label[:, np.newaxis, :] - X_label[np.newaxis, :, :]
+        sq_distances = np.sum(diff * diff, axis=2)
+        np.fill_diagonal(sq_distances, np.inf)
+
+        if k < sq_distances.shape[1] - 1:
+            partitioned = np.partition(sq_distances, k - 1, axis=1)
+            result: np.ndarray = np.nextafter(np.sqrt(partitioned[:, k - 1]), 0)
+            return result
+        else:
+            result = np.nextafter(
+                np.sqrt(np.max(np.where(sq_distances < np.inf, sq_distances, 0), axis=1)),
+                0,
+            )
+            return result
+
+    def _process_labels(
+        self, X: np.ndarray, c: np.ndarray, pw_distances: np.ndarray, use_pw: bool
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Process all unique labels and compute radius, label_counts, and k_all."""
+        n_samples = X.shape[0]
+        radius = np.empty(n_samples)
+        label_counts = np.empty(n_samples)
+        k_all = np.empty(n_samples)
+
+        # Get unique labels and their indices all at once
+        unique_labels = np.unique(c, axis=0)
+        label_masks = {}
+        label_indices_dict = {}
+
+        for label in unique_labels:
+            mask = (c == label).all(axis=1)
+            label_masks[tuple(label)] = mask
+            label_indices_dict[tuple(label)] = np.where(mask)[0]
+
+        # Process all labels
+        for label in unique_labels:
+            mask = label_masks[tuple(label)]
+            count = int(np.sum(mask))
+            label_counts[mask] = count
+
+            if count > 1:
+                k = min(self.n_neighbors, count - 1)
+                k_all[mask] = k
+                label_indices = label_indices_dict[tuple(label)]
+
+                if use_pw:
+                    radius[label_indices] = self._compute_radius_pairwise(
+                        pw_distances, label_indices, k
+                    )
+                else:
+                    radius[label_indices] = self._compute_radius_euclidean(X, label_indices, k)
+            else:
+                k_all[mask] = 0
+                radius[mask] = 0
+
+        return radius, label_counts, k_all
+
     def _estimate(
         self, X: np.ndarray, c: np.ndarray, pointwise: bool = False
     ) -> Union[float, np.ndarray]:
@@ -238,63 +317,44 @@ class CDMIRossEstimator(BaseMIEstimator):
         use_pw = X.shape[1] > PAIRWISE_DISTANCE_THRESHOLD
 
         X = X + np.random.randn(*X.shape) * 1e-10
-        n_samples = X.shape[0]
 
-        radius = np.empty(n_samples)
-        label_counts = np.empty(n_samples)
-        k_all = np.empty(n_samples)
+        # Pre-compute pairwise distances once if needed
+        pw_distances = euclidean_distances(X) if use_pw else np.empty((0, 0))
 
-        if use_pw:
-            pw_distances = euclidean_distances(X)
+        # Process all labels and compute radius, label_counts, and k_all
+        radius, label_counts, k_all = self._process_labels(X, c, pw_distances, use_pw)
 
-        nn = NearestNeighbors(metric="precomputed" if use_pw else "minkowski")
-        for label in np.unique(c, axis=0):
-            mask = (c == label).all(axis=1)
-            count: int = int(np.sum(mask))
-            if count > 1:
-                k = min(self.n_neighbors, count - 1)
-
-                nn.set_params(n_neighbors=k)
-                masked_fit_input = pw_distances[mask, :][:, mask] if use_pw else X[mask, :]
-                nn.fit(masked_fit_input)
-                r = nn.kneighbors()[0]
-                radius[mask] = np.nextafter(r[:, -1], 0)
-
-                k_all[mask] = k
-
-            label_counts[mask] = count
-
-        # Ignore points with unique labels.
+        # Ignore points with unique labels
         mask = label_counts > 1
-        n_samples = np.sum(mask)
+        n_samples_valid: int = int(np.sum(mask))
 
-        if n_samples == 0:
-            # All labels are unique, return 0 MI
+        if n_samples_valid == 0:
             return 0.0 if not pointwise else np.zeros(len(X))
 
         label_counts = label_counts[mask]
         k_all = k_all[mask]
-        X = X[mask, :]
         radius = radius[mask]
 
         if use_pw:
-            pw_distances = pw_distances[mask, :][:, mask]
-            m_all = (pw_distances <= radius.reshape(-1, 1)).sum(axis=1)
-            m_all = m_all - 1.0
-
+            # Use the precomputed distances directly
+            pw_distances_masked = pw_distances[mask][:, mask]
+            # Vectorized comparison
+            m_all = (pw_distances_masked <= radius.reshape(-1, 1)).sum(axis=1) - 1.0
         else:
-            kd = KDTree(X)
-            m_all = kd.query_radius(X, radius, count_only=True, return_distance=False)
+            # For low dimensions, KDTree is still efficient for radius queries
+            X_masked = X[mask, :]
+            kd = KDTree(X_masked)
+            m_all = kd.query_radius(X_masked, radius, count_only=True, return_distance=False)
             m_all = np.array(m_all) - 1.0
 
-        mis = digamma(n_samples) + digamma(k_all) - digamma(label_counts) - digamma(m_all + 1)
+        mis = digamma(n_samples_valid) + digamma(k_all) - digamma(label_counts) - digamma(m_all + 1)
 
         if pointwise:
-            pointwise_mis: np.ndarray = mis
-            return pointwise_mis
+            result: np.ndarray = mis
+            return result
         else:
-            mean_mis: float = float(np.mean(mis))
-            return max(0.0, mean_mis)
+            result_scalar: float = max(0.0, float(np.mean(mis)))
+            return result_scalar
 
 
 class CDMIEntropyBasedEstimator(BaseMIEstimator):
